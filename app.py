@@ -7,19 +7,19 @@ from sqlalchemy import create_engine
 
 engine = create_engine('sqlite:///loan_data.db', echo=False)
 model = pickle.load(open('model.pickle', 'rb'))
-df = pd.read_sql('loans', engine, index_col='index')
+df = pd.read_sql('loans', engine)
 
 def predict_status(credit_history, applicantincome, coapplicantincome, loanamount, loan_amount_term):
-    data = [credit_history, applicantincome, coapplicantincome, loanamount, loan_amount_term]
+    data = [credit_history, applicantincome, loanamount, coapplicantincome, loan_amount_term]
     data = pd.Series(data)
 
     data = data.values.reshape((1, len(df.drop('Loan_Status', axis=1).columns)))
     prediction = model.predict(data)
 
     # Insert the new row into the database and replace the existing table in the database
-    df.loc[len(df)] = [credit_history, applicantincome, coapplicantincome, loanamount, loan_amount_term, prediction[0]]
-    df.to_sql('loans', engine, if_exists='replace')
-    df.to_csv('loans.csv')
+    df.loc[len(df)] = [credit_history, applicantincome, loanamount, coapplicantincome, loan_amount_term, prediction[0]]
+    df.to_sql('loans', engine, if_exists='replace', index=False)
+    df.to_csv('loans.csv', index=False)
 
     # Send data to FastAPI server
     url = 'http://127.0.0.1:8000/train/'
@@ -41,13 +41,11 @@ def predict_status(credit_history, applicantincome, coapplicantincome, loanamoun
     return 'Granted' if prediction[0] == 1 else 'Denied'
 
 credit_history_list = df['Credit_History'].unique().tolist()
-credit_history_list = [str(x) for x in credit_history_list]
-loan_amount_term_list = df['Loan_Amount_Term'].unique().tolist()
-loan_amount_term_list = [str(x) for x in loan_amount_term_list]
+credit_history_list = ['Yes' if int(x) == 1 else 'No' for x in credit_history_list]
 
 gr.Interface(predict_status, inputs=[   gr.inputs.Dropdown(choices=credit_history_list), 
-                                        gr.inputs.Slider(minimum=0, maximum=1000000, step=1000),
-                                        gr.inputs.Slider(minimum=0, maximum=1000000, step=1000),
-                                        gr.inputs.Slider(minimum=0, maximum=1000000, step=1000),
-                                        gr.inputs.Dropdown(choices=loan_amount_term_list)],
+                                        gr.inputs.Slider(minimum=0, maximum=int(df['ApplicantIncome'].max()), step=10),
+                                        gr.inputs.Slider(minimum=0, maximum=int(df['CoapplicantIncome'].max()), step=10),
+                                        gr.inputs.Slider(minimum=0, maximum=int(df['LoanAmount'].max()), step=10),
+                                        gr.inputs.Slider(minimum=0, maximum=int(df['Loan_Amount_Term'].max()), step=10)],
                             outputs='text').launch()
